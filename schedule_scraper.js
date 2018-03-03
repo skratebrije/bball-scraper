@@ -1,4 +1,6 @@
 const puppeteer = require('puppeteer');
+const fs = require('fs');
+const write = false;
 
 async function getProperty(element, property) {
 	return await (await element.getProperty(property)).jsonValue();
@@ -40,8 +42,7 @@ async function getGameUrls(browser) {
 		for (var month of months) {
 			var hrefs = await getGameUrlsFromSchedule(browser, month, season);
 			console.log(month + "/" + season + " had " + hrefs.length + " games");
-			// TODO: flatten into 1D array
-			games.push(hrefs);
+			Array.prototype.push.apply(games, hrefs);
 		}
 	}
 	return games;
@@ -52,6 +53,17 @@ async function getGameUrls(browser) {
 
 	var games = await getGameUrls(browser);
 	console.log(games);
+
+	if (write) {
+		fs.writeFile("game_urls.txt", games, function(err) {
+			if (err) { 
+				console.log(err);
+			}
+			else {
+				console.log("Game urls were written to game_urls.txt");
+			}
+		});
+	}
 
 	await browser.close();
 })();
