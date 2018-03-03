@@ -57,6 +57,20 @@ async function getText(page, element) {
 	}
 }
 
+async function getPointsFromRow(page, row, selector) {
+	var points = await page.evaluate(function(row, selector) {
+		var tds = [...row.querySelectorAll(selector)];
+		if (tds.length == 0) {
+			return;
+		} else if (tds.length == 1) {
+			return parseInt(tds[0].textContent.trim());
+		} else {
+			return tds.map((td) => parseInt(td.textContent.trim()));
+		}
+	}, row, selector);
+	return points;
+}
+
 async function getOverallStats(browser, url) {
 	var page = await browser.newPage();
 	var boxScoreExt = "#/panel-one"
@@ -68,16 +82,20 @@ async function getOverallStats(browser, url) {
 	var homeScore = await getText(page, await page.$$("div.home-team > div.game__header-score"));
 	var homeCity = await getText(page, await page.$$("div.home-team > div.game__header-team-name > a > span.team-city"));
 	var homeName = await getText(page, await page.$$("div.home-team > div.game__header-team-name > a > span.team-name"));
-	
 
 	console.log(awayCity + " " + awayName + " got " + awayScore);
 	console.log(homeCity + " " + homeName + " got " + homeScore);
-}
 
-async function getBoxScore(page) {
-	// TODO: get the scores per quarter/half
 	var boxScore = await page.$$("table.game__box-score-table > tbody > tr");
-	boxScore[0]
+	var awayPeriods = await getPointsFromRow(page, boxScore[0], "td:not(.ng-hide):not(.game__box-score-score)");
+	var awayTotal = await getPointsFromRow(page, boxScore[0], "td.game__box-score-score");
+	var homePeriods = await getPointsFromRow(page, boxScore[1], "td:not(.ng-hide):not(.game__box-score-score)");
+	var homeTotal = await getPointsFromRow(page, boxScore[1], "td.game__box-score-score");
+
+	console.log(awayCity + " " + awayName + " got " + awayPeriods + " for a total of " + awayTotal);
+	console.log(homeCity + " " + homeName + " got " + homePeriods + " for a total of " + homeTotal);
+
+	// TODO: check that the periods sum to the total score and that the total score matches with the header score
 }
 
 (async () => {
