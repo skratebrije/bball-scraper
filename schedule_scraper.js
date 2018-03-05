@@ -1,18 +1,21 @@
 const puppeteer = require('puppeteer');
 const fs = require('fs');
-const write = false;
 
-async function getProperty(element, property) {
-	return await (await element.getProperty(property)).jsonValue();
-}
+var scraperUtils = require('./utils_scraper');
+
+const write = false;
 
 async function getValuesFromSelectMenu(page, id) {
 	var options = await page.$$('#' + id + ' > option');
+	return await scraperUtils.mapToProperty(options, "value");
+
+	/*
 	var values = [];
 	for (var option of options) {
 		values.push(await getProperty(option, "value"));
 	}
 	return values;
+	*/
 }
 
 async function getGameUrlsFromSchedule(browser, month, season) {
@@ -21,11 +24,15 @@ async function getGameUrlsFromSchedule(browser, month, season) {
 	await page.goto(url);
 
 	// Record the links that adhere to the game info href format
-	const links = await page.$$('a[href^="http://www.wnba.com/game/"');
+	var links = await page.$$('a[href^="http://www.wnba.com/game/"');
+	var hrefs = await scraperUtils.mapToProperty(links, "href");
+
+	/*
 	var hrefs = [];
 	for (var link of links) {
 		hrefs.push(await getProperty(link, "href"));
 	}
+	*/
 
 	await page.close();
 	return hrefs;

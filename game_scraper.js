@@ -1,81 +1,20 @@
 const puppeteer = require('puppeteer');
 const fs = require('fs');
+const util = require('util');
 
-async function getProperty(element, property) {
-	return await (await element.getProperty(property)).jsonValue();
-}
+var scraperUtils = require('./utils_scraper');
+var performanceStats = require('./performance_stats');
 
-async function getValuesFromSelectMenu(page, id) {
-	var options = await page.$$('#' + id + ' > option');
-	var values = [];
-	for (var option of options) {
-		values.push(await getProperty(option, "value"));
-	}
-	return values;
-}
-
-async function getGameUrlsFromSchedule(browser, month, season) {
-	var page = await browser.newPage();
-	var url = "http://www.wnba.com/schedule/#?month=" + month + "&season=" + season + "&seasontype=02";
-	await page.goto(url);
-
-	// Record the links that adhere to the game info href format
-	const links = await page.$$('a[href^="http://www.wnba.com/game/"');
-	var hrefs = [];
-	for (var link of links) {
-		hrefs.push(await getProperty(link, "href"));
-	}
-
-	await page.close();
-	return hrefs;
-}
-
-async function getGameUrls(browser) {
-	var page = await browser.newPage();
-	await page.goto("http://www.wnba.com/schedule/");
-	var months = await getValuesFromSelectMenu(page, "month-filter");
-	var seasons = await getValuesFromSelectMenu(page, "season-filter");
-	
-	var games = [];
-	for (var season of seasons) {
-		for (var month of months) {
-			var hrefs = await getGameUrlsFromSchedule(browser, month, season);
-			console.log(month + "/" + season + " had " + hrefs.length + " games");
-			// TODO: flatten into 1D array
-			Array.prototype.push.apply(games, hrefs);
-			//games.push(hrefs);
-		}
-	}
-	return games;
-}
 
 async function getText(page, element) {
 	if (Array.isArray(element)) {
-		return await page.evaluate(x => x.innerText, element[0]);
+		return scraperUtils.getProperty(element[0], "innerText");
 	} else {
-		return await page.evaluate(x => x.innerText, element);
+		return scraperUtils.getProperty(element, "innerText");
 	}
 }
 
-async function getPointsFromRow(page, row, selector) {
-	var points = await page.evaluate(function(row, selector) {
-		var tds = [...row.querySelectorAll(selector)];
-		if (tds.length == 0) {
-			return;
-		} else if (tds.length == 1) {
-			return parseInt(tds[0].textContent.trim());
-		} else {
-			return tds.map((td) => parseInt(td.textContent.trim()));
-		}
-	}, row, selector);
-	return points;
-}
-
-async function getOverallStats(browser, url) {
-	var page = await browser.newPage();
-	var boxScoreExt = "#/panel-one"
-	await page.goto(url + boxScoreExt);
-
+async function getBasicGameData(page, game) {
 	var awayScore = await getText(page, await page.$$("div.away-team > div.game__header-score"));
 	var awayCity = await getText(page, await page.$$("div.away-team > div.game__header-team-name > a > span.team-city"));
 	var awayName = await getText(page, await page.$$("div.away-team > div.game__header-team-name > a > span.team-name"));
@@ -83,19 +22,114 @@ async function getOverallStats(browser, url) {
 	var homeCity = await getText(page, await page.$$("div.home-team > div.game__header-team-name > a > span.team-city"));
 	var homeName = await getText(page, await page.$$("div.home-team > div.game__header-team-name > a > span.team-name"));
 
-	console.log(awayCity + " " + awayName + " got " + awayScore);
-	console.log(homeCity + " " + homeName + " got " + homeScore);
+	game.away = {city: awayCity, name: awayName, winner: (awayScore > homeScore), score: awayScore};
+	game.home = {city: homeCity, name: homeName, winner: (homeScore > awayScore), score: homeScore};
+}
 
+async function getPointsFromRow(page, row, selector) {
+	var points = await scraperUtils.mapToProperty(await row.$$(selector), "innerText");
+	return points.map((val) => parseInt(val));
+}
+
+async function getScoreboardData(page, game) {
 	var boxScore = await page.$$("table.game__box-score-table > tbody > tr");
 	var awayPeriods = await getPointsFromRow(page, boxScore[0], "td:not(.ng-hide):not(.game__box-score-score)");
 	var awayTotal = await getPointsFromRow(page, boxScore[0], "td.game__box-score-score");
 	var homePeriods = await getPointsFromRow(page, boxScore[1], "td:not(.ng-hide):not(.game__box-score-score)");
 	var homeTotal = await getPointsFromRow(page, boxScore[1], "td.game__box-score-score");
 
-	console.log(awayCity + " " + awayName + " got " + awayPeriods + " for a total of " + awayTotal);
-	console.log(homeCity + " " + homeName + " got " + homePeriods + " for a total of " + homeTotal);
+	//TODO: check that sum of periods equals total and that game data total equals scoreboard total
 
-	// TODO: check that the periods sum to the total score and that the total score matches with the header score
+	game.away.periods = awayPeriods;
+	game.home.periods = homePeriods;
+}
+
+async function getStatsHeaders(statsSection) {
+	var elements = await statsSection.$$("thead > tr > th > abbr");
+	return await scraperUtils.mapToProperty(elements, "title");
+}
+
+async function getPlayersStats(traditionalStatsSection, advancedStatsSection) {
+	var players = await traditionalStatsSection.$$("tbody > tr");
+	var playersAdvanced = await advancedStatsSection.$$("tbody > tr");
+
+	if (players.length != playersAdvanced.length) {
+		console.log("Unexpected difference in length of players");
+		console.log(players.length + " vs " + playersAdvanced.length);
+	}
+
+	var playersObjs = [];
+
+	for (var i=0; i<players.length; i++) {
+		var playerName = await scraperUtils.getProperty(await players[i].$("th > a"), "innerText");
+		var cells = await players[i].$$("td");
+		//var playerNum = await scraperUtils.getProperty(cells[0], "innerText");
+		var stats = await scraperUtils.mapToProperty(cells.slice(1), "innerText");
+		var cellsAdvanced = await playersAdvanced[i].$$("td");
+		var statsAdvanced = await scraperUtils.mapToProperty(cellsAdvanced.slice(1), "innerText");
+
+		playersObjs.push(performanceStats.makePlayerStats(playerName, stats, statsAdvanced));
+	}
+
+	return playersObjs;
+}
+
+async function getTeamStats(teamStatsSection) {
+
+}
+
+async function getPerformanceStats(page, game) {
+	var statsSections = await page.$$("div.stat-table > div.stat-table__overflow > table");
+	
+	// Get stats headers for individual players (includes both traditional and advanced stats) and teams
+	var playerStatsHeaders = (await getStatsHeaders(statsSections[0])).slice(2);
+	var playerAdvancedStatsHeaders = (await getStatsHeaders(statsSections[1])).slice(2);
+	var teamStatsHeaders = await getStatsHeaders(statsSections[2]);
+
+	// TODO: throw error if stats headers don't match expected as this signals a change
+	// in website design that should affect how we parse the DOM
+
+	/*
+	console.log(playerStatsHeaders);
+	console.log(playerAdvancedStatsHeaders);
+	console.log(teamStatsHeaders);
+	*/
+
+	game.away.players = await getPlayersStats(statsSections[0], statsSections[1]);
+	game.home.players = await getPlayersStats(statsSections[3], statsSections[4]);
+
+	// TODO: parse team stats
+	var awayTeam = await getTeamStats(statsSections[2]);
+	var homeTeam = await getTeamStats(statsSections[4]);
+}
+
+async function getOverallStats(browser, url) {
+	var page = await browser.newPage();
+	// The javascript on the page depends on the size of the window, so make
+	// sure that puppeteer is using a viewport/user agent resembling a desktop
+	var viewport = {
+		'width': 1280,
+		'height': 1620,
+		'deviceScaleFactor': 1,
+		'isMobile': false,
+		'hasTouch': true,
+		'isLandscape': false
+    }
+	await page.setViewport(viewport);
+	await page.setUserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/64.0.3282.186 Safari/537.36");
+	// TODO: don't need the panel-one extension on the url
+	var boxScoreExt = "#/panel-one"
+	await page.goto(url + boxScoreExt);
+	await page.screenshot({path: "panel-one.png"});
+
+	var game = {}
+	await getBasicGameData(page, game);
+	await getScoreboardData(page, game);
+	await getPerformanceStats(page, game);
+
+	// TODO: get arena stats, inactive player stats
+
+	console.log(util.inspect(game, {showHidden: false, depth: null}));
 }
 
 (async () => {
@@ -103,19 +137,6 @@ async function getOverallStats(browser, url) {
 
 	var url = "http://www.wnba.com/game/20170502/CHICON/"
 	await getOverallStats(browser, url);
-
-	/*
-	var games = await getGameUrls(browser);
-	console.log(games);
-	fs.writeFile("game_urls.txt", games, function(err) {
-		if (err) { 
-			console.log(err);
-		}
-		else {
-			console.log("Game urls were written to game_urls.txt");
-		}
-	});
-	*/
 
 	await browser.close();
 })();
