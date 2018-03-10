@@ -5,7 +5,6 @@ const util = require('util');
 var scraperUtils = require('./utils_scraper');
 var performanceStats = require('./performance_stats');
 
-
 async function getText(page, element) {
 	if (Array.isArray(element)) {
 		return scraperUtils.getProperty(element[0], "innerText");
@@ -49,7 +48,7 @@ async function getStatsHeaders(statsSection) {
 	return await scraperUtils.mapToProperty(elements, "title");
 }
 
-async function getPlayersStats(traditionalStatsSection, advancedStatsSection) {
+async function getTraditionalAndAdvancedStats(team, traditionalStatsSection, advancedStatsSection) {
 	var players = await traditionalStatsSection.$$("tbody > tr");
 	var playersAdvanced = await advancedStatsSection.$$("tbody > tr");
 
@@ -59,48 +58,41 @@ async function getPlayersStats(traditionalStatsSection, advancedStatsSection) {
 	}
 
 	var playersObjs = [];
-
 	for (var i=0; i<players.length; i++) {
 		var playerName = await scraperUtils.getProperty(await players[i].$("th > a"), "innerText");
 		var cells = await players[i].$$("td");
 		//var playerNum = await scraperUtils.getProperty(cells[0], "innerText");
-		var stats = await scraperUtils.mapToProperty(cells.slice(1), "innerText");
 		var cellsAdvanced = await playersAdvanced[i].$$("td");
-		var statsAdvanced = await scraperUtils.mapToProperty(cellsAdvanced.slice(1), "innerText");
 
-		playersObjs.push(performanceStats.makePlayerStats(playerName, stats, statsAdvanced));
+		playersObjs.push(await performanceStats.makeStats(playerName, cells, cellsAdvanced));
 	}
+	team.playerStats = playersObjs
 
-	return playersObjs;
-}
-
-async function getTeamStats(teamStatsSection) {
-
+	var teamCells = await traditionalStatsSection.$$("tfoot > tr > td");
+	var teamCellsAdvanced = await traditionalStatsSection.$$("tfoot > tr > td");
+	team.teamStats = await performanceStats.makeStats(null, teamCells, teamCellsAdvanced);
 }
 
 async function getPerformanceStats(page, game) {
 	var statsSections = await page.$$("div.stat-table > div.stat-table__overflow > table");
 	
-	// Get stats headers for individual players (includes both traditional and advanced stats) and teams
-	var playerStatsHeaders = (await getStatsHeaders(statsSections[0])).slice(2);
-	var playerAdvancedStatsHeaders = (await getStatsHeaders(statsSections[1])).slice(2);
-	var teamStatsHeaders = await getStatsHeaders(statsSections[2]);
+	// Get traditional and advanced stats headers
+	var statsHeaders = (await getStatsHeaders(statsSections[0])).slice(2);
+	var advancedStatsHeaders = (await getStatsHeaders(statsSections[1])).slice(2);
+	// Not using 'Four Factors' stats table right now as all information can be derived from the
+	// team row of the traditional/advanced stats tables
+	// var teamStatsHeaders = await getStatsHeaders(statsSections[2]);
 
 	// TODO: throw error if stats headers don't match expected as this signals a change
 	// in website design that should affect how we parse the DOM
-
 	/*
-	console.log(playerStatsHeaders);
-	console.log(playerAdvancedStatsHeaders);
-	console.log(teamStatsHeaders);
+	console.log("playerStats: " + statsHeaders);
+	console.log("advancedPlayerStats: " + advancedStatsHeaders);
+	console.log("teamStats: " + teamStatsHeaders);
 	*/
 
-	game.away.players = await getPlayersStats(statsSections[0], statsSections[1]);
-	game.home.players = await getPlayersStats(statsSections[3], statsSections[4]);
-
-	// TODO: parse team stats
-	var awayTeam = await getTeamStats(statsSections[2]);
-	var homeTeam = await getTeamStats(statsSections[4]);
+	await getTraditionalAndAdvancedStats(game.away, statsSections[0], statsSections[1]);
+	await getTraditionalAndAdvancedStats(game.home, statsSections[3], statsSections[4]);
 }
 
 async function getOverallStats(browser, url) {
@@ -117,10 +109,8 @@ async function getOverallStats(browser, url) {
     }
 	await page.setViewport(viewport);
 	await page.setUserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/64.0.3282.186 Safari/537.36");
-	// TODO: don't need the panel-one extension on the url
-	var boxScoreExt = "#/panel-one"
-	await page.goto(url + boxScoreExt);
-	await page.screenshot({path: "panel-one.png"});
+	await page.goto(url)
+	//await page.screenshot({path: "panel-one.png"});
 
 	var game = {}
 	await getBasicGameData(page, game);
