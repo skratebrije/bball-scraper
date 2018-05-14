@@ -120,12 +120,13 @@ async function getOverallStats(browser, url) {
 	// TODO: get arena stats, inactive player stats
 
 	console.log(util.inspect(game, {showHidden: false, depth: null}));
+	await page.close();
 }
 
 (async () => {
 	const browser = await puppeteer.launch();
 
-	var url = "http://www.wnba.com/game/20170502/CHICON/"
+	var url = "http://www.wnba.com/game/20180506/WASMIN/"
 	await getOverallStats(browser, url);
 
 	await browser.close();

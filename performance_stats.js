@@ -7,7 +7,9 @@ module.exports = {
 
 function parseNameAndStarter(entity, name) {
 	// Starters have names denoting their position (ex. "Jessica Breland - F")
-	var regex = /(.*)\s-\s[GFC]$/;
+	// Sometimes PG (Point Guard), SG (Shooting Guard), PF (Power Forward),
+	// and SF (Small Forward) are used
+	var regex = /(.*)\s-\s(?:G|F|C|PG|SG|PF|SF)$/;
 	var match = regex.exec(name);
 	if (match == null) {
 		entity.name = name;
@@ -33,7 +35,7 @@ function parseXforY(entity, stat, xField, yField) {
 	var match = regex.exec(stat);
 	if (match == null) {
 		entity[xField] = 0;
-		entity[yField] = 1;
+		entity[yField] = 0;
 	} else {
 		entity[xField] = parseInt(match[1]);
 		entity[yField] = parseInt(match[2]);
