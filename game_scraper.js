@@ -95,6 +95,33 @@ async function getPerformanceStats(page, game) {
 	await getTraditionalAndAdvancedStats(game.home, statsSections[3], statsSections[4]);
 }
 
+async function getPlayByPlay(page, game) {
+	await page.click('a[href="#panel-two"]');
+	
+	// The correct selector for the periods depends on the dimensions of the page
+	// await page.screenshot({path: "panel-two.png"});
+	var periods = await page.$$("ul.pbp__periods__list > li > a");
+	
+	// The JS loads the table of plays dynamically based on which period is selected
+	var periodObjs = [];
+	for (var period of periods) {
+		periodText = await scraperUtils.getProperty(period, "innerText");
+		await period.click();
+
+		var plays = await page.$$("table.table.pbp__timeline__table > tbody > tr");
+		var playObjs = [];
+		for (var play of plays) {
+			var playObj = {};
+			playObj.time = await scraperUtils.getProperty(await play.$("td > p.pbp__timeline__clock"), "innerText");
+			playObj.team = await scraperUtils.getProperty(await play.$("td > p.pbp__timeline__team"), "innerText");
+			playObj.description = await scraperUtils.getProperty(await play.$("td > p.pbp__timeline__description"), "innerText");
+			playObjs.push(playObj);
+		}
+		periodObjs.push({period: periodText, plays: playObjs});
+	}
+	game.plays = periodObjs;
+}
+
 async function getOverallStats(browser, url) {
 	var page = await browser.newPage();
 	// The javascript on the page depends on the size of the window, so make
@@ -109,24 +136,29 @@ async function getOverallStats(browser, url) {
     }
 	await page.setViewport(viewport);
 	await page.setUserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/64.0.3282.186 Safari/537.36");
-	await page.goto(url)
+	await page.goto(url);
 	//await page.screenshot({path: "panel-one.png"});
 
-	var game = {}
+	var game = {};
 	await getBasicGameData(page, game);
 	await getScoreboardData(page, game);
 	await getPerformanceStats(page, game);
 
 	// TODO: get arena stats, inactive player stats
 
+	await getPlayByPlay(page, game);
+
 	console.log(util.inspect(game, {showHidden: false, depth: null}));
+
 	await page.close();
 }
 
 (async () => {
 	const browser = await puppeteer.launch();
 
-	var url = "http://www.wnba.com/game/20180506/WASMIN/"
+	var url = "http://www.wnba.com/game/20180506/WASMIN/";
+	// an overtime game
+	var overtimeUrl = "http://www.wnba.com/game/20170719/ATLWAS/";
 	await getOverallStats(browser, url);
 
 	await browser.close();

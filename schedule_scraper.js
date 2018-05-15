@@ -3,7 +3,7 @@ const fs = require('fs');
 
 var scraperUtils = require('./utils_scraper');
 
-const write = true;
+const write = false;
 
 async function getValuesFromSelectMenu(page, id) {
 	var options = await page.$$('#' + id + ' > option');
@@ -16,7 +16,7 @@ async function getGameUrlsFromSchedule(browser, month, season) {
 	await page.goto(url);
 
 	// Record the links that adhere to the game info href format
-	var links = await page.$$('a[href^="http://www.wnba.com/game/"');
+	var links = await page.$$('a[href^="http://www.wnba.com/game/"]');
 	var hrefs = await scraperUtils.mapToProperty(links, "href");
 
 	await page.close();
